@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StreamCart — Seller Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="index.html" class="logo">🛒 StreamCart</a>
+  <div class="nav-links">
+    <span id="dash-user" style="font-size:13px;color:var(--muted)"></span>
+    <a href="index.html" class="btn btn-outline btn-sm">View store</a>
+    <button class="btn btn-outline btn-sm" onclick="logout()">Logout</button>
+  </div>
+</nav>
+
+<div class="page-wrap">
+
+  <!-- Stats row -->
+  <div class="grid-2" style="margin-bottom:1.25rem" id="stats-row">
+    <div class="card" style="text-align:center">
+      <div style="font-size:2rem;font-weight:700;color:var(--brand)" id="stat-streams">—</div>
+      <div style="font-size:13px;color:var(--muted)">Total streams</div>
+    </div>
+    <div class="card" style="text-align:center">
+      <div style="font-size:2rem;font-weight:700;color:var(--green)" id="stat-live">—</div>
+      <div style="font-size:13px;color:var(--muted)">Live right now</div>
+    </div>
+  </div>
+
+  <div class="grid-2" style="align-items:start">
+
+    <!-- Left: create stream + my streams -->
+    <div>
+      <!-- Create stream form -->
+      <div class="card" style="margin-bottom:1rem">
+        <h3 style="margin-bottom:1rem;font-size:15px">Create new stream</h3>
+        <div class="form-group">
+          <label>Stream title</label>
+          <input id="stream-title" placeholder="e.g. Diwali Sale Live">
+        </div>
+        <div class="form-group">
+          <label>Description (optional)</label>
+          <textarea id="stream-desc" rows="2" placeholder="What are you selling today?"></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="createStream()">Create stream</button>
+      </div>
+
+      <!-- My streams list -->
+      <div class="card">
+        <h3 style="margin-bottom:1rem;font-size:15px">My streams</h3>
+        <div id="my-streams"><p style="color:var(--muted);font-size:14px">Loading...</p></div>
+      </div>
+    </div>
+
+    <!-- Right: selected stream management -->
+    <div>
+      <div class="card" id="stream-panel" style="display:none">
+        <div id="panel-header" style="margin-bottom:1rem"></div>
+
+        <!-- Stream controls -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1.25rem" id="stream-controls"></div>
+
+        <!-- Add product form -->
+        <h4 style="font-size:14px;margin-bottom:.75rem">Add product</h4>
+        <div class="form-group">
+          <label>Product name</label>
+          <input id="prod-name" placeholder="e.g. Wireless Earbuds">
+        </div>
+        <div class="grid-2" style="gap:.75rem">
+          <div class="form-group">
+            <label>Price (₹)</label>
+            <input id="prod-price" type="number" placeholder="999">
+          </div>
+          <div class="form-group">
+            <label>Stock quantity</label>
+            <input id="prod-stock" type="number" placeholder="10">
+          </div>
+        </div>
+        <button class="btn btn-green btn-sm" onclick="addProduct()" style="margin-bottom:1.25rem">
+          + Add product
+        </button>
+
+        <!-- Flash deal form -->
+        <h4 style="font-size:14px;margin-bottom:.75rem">⚡ Start flash deal</h4>
+        <div class="grid-2" style="gap:.75rem">
+          <div class="form-group">
+            <label>Select product</label>
+            <select id="flash-product-select"></select>
+          </div>
+          <div class="form-group">
+            <label>Flash price (₹)</label>
+            <input id="flash-price-input" type="number" placeholder="499">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Duration (seconds)</label>
+          <input id="flash-duration" type="number" value="60" placeholder="60">
+        </div>
+        <button class="btn btn-amber btn-sm" onclick="startFlashDeal()">⚡ Launch flash deal</button>
+
+        <!-- Products in stream -->
+        <div style="margin-top:1.25rem">
+          <h4 style="font-size:14px;margin-bottom:.75rem">Products in stream</h4>
+          <div id="panel-products"></div>
+        </div>
+
+        <!-- Live orders -->
+        <div style="margin-top:1.25rem">
+          <h4 style="font-size:14px;margin-bottom:.75rem">Live orders</h4>
+          <div id="panel-orders" style="font-size:13px;color:var(--muted)">No orders yet</div>
+        </div>
+      </div>
+
+      <!-- Placeholder when no stream selected -->
+      <div class="card" id="no-stream-panel" style="text-align:center;padding:2rem;color:var(--muted)">
+        <div style="font-size:2rem;margin-bottom:.5rem">📡</div>
+        <p>Select a stream from the left to manage it</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script>
+  // Guard — must be logged in as seller
+  const user = Auth.user();
+  if (!user || user.role !== 'seller') window.location = 'index.html';
+  document.getElementById('dash-user').textContent = `Hi, ${user.name}`;
+
+  let selectedStreamId = null;
+  let socket;
+
+  // ── LOAD MY STREAMS ──────────────────────────────────────────
+  async function loadMyStreams() {
+    try {
+      const data = await gql(`
+        query {
+          streams {
+            id title status createdAt
+            products { id name price stock_quantity }
+          }
+        }
+      `);
+
+      // Filter to this seller's streams
+      const allStreams = data.streams;
+
+      document.getElementById('stat-streams').textContent = allStreams.length;
+      document.getElementById('stat-live').textContent = allStreams.filter(s => s.status === 'live').length;
+
+      const container = document.getElementById('my-streams');
+      if (!allStreams.length) {
+        container.innerHTML = '<p style="color:var(--muted);font-size:14px">No streams yet. Create one!</p>';
+        return;
+      }
+
+      container.innerHTML = allStreams.map(s => `
+        <div
+          class="card stream-card"
+          style="margin-bottom:.5rem;padding:.75rem 1rem;cursor:pointer;border:2px solid ${selectedStreamId === s.id ? 'var(--brand)' : 'var(--border)'}"
+          onclick="selectStream(${s.id})"
+        >
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div style="font-weight:600;font-size:14px">${s.title}</div>
+              <div style="font-size:12px;color:var(--muted)">${s.products.length} products · ${timeAgo(s.createdAt)}</div>
+            </div>
+            <span class="badge badge-${s.status}">${s.status === 'live' ? '🔴 LIVE' : s.status}</span>
+          </div>
+        </div>
+      `).join('');
+
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  // ── CREATE STREAM ────────────────────────────────────────────
+  async function createStream() {
+    const title = document.getElementById('stream-title').value.trim();
+    const desc  = document.getElementById('stream-desc').value.trim();
+    if (!title) { toast('Title is required', 'error'); return; }
+
+    try {
+      await api('POST', '/streams', { title, description: desc });
+      document.getElementById('stream-title').value = '';
+      document.getElementById('stream-desc').value  = '';
+      toast('Stream created!', 'success');
+      loadMyStreams();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  // ── SELECT STREAM ────────────────────────────────────────────
+  async function selectStream(id) {
+    selectedStreamId = id;
+
+    // Connect socket for this stream
+    if (!socket) connectDashboardSocket();
+    socket.emit('join-stream', { streamId: id });
+
+    document.getElementById('stream-panel').style.display    = 'block';
+    document.getElementById('no-stream-panel').style.display = 'none';
+
+    await refreshPanel();
+    loadMyStreams(); // re-render to highlight selected
+  }
+
+  async function refreshPanel() {
+    if (!selectedStreamId) return;
+
+    try {
+      const data = await gql(`
+        query GetStream($id: Int!) {
+          stream(id: $id) {
+            id title status
+            products { id name price stock_quantity is_flash_deal }
+          }
+        }
+      `, { id: selectedStreamId });
+
+      const s = data.stream;
+
+      // Header
+      document.getElementById('panel-header').innerHTML = `
+        <h3 style="font-size:16px;font-weight:700">${s.title}</h3>
+        <span class="badge badge-${s.status}" style="margin-top:4px;display:inline-block">
+          ${s.status === 'live' ? '🔴 LIVE' : s.status}
+        </span>
+      `;
+
+      // Controls
+      const ctrl = document.getElementById('stream-controls');
+      ctrl.innerHTML = '';
+      if (s.status === 'scheduled') {
+        ctrl.innerHTML = `<button class="btn btn-green" onclick="goLive()">🔴 Go Live</button>`;
+      } else if (s.status === 'live') {
+        ctrl.innerHTML = `
+          <button class="btn btn-red" onclick="endStream()">⏹ End Stream</button>
+          <a href="stream.html?id=${s.id}" target="_blank" class="btn btn-outline btn-sm">View as viewer ↗</a>
+        `;
+      } else {
+        ctrl.innerHTML = `<a href="stream.html?id=${s.id}" target="_blank" class="btn btn-outline btn-sm">View replay ↗</a>`;
+      }
+
+      // Products
+      const prodList = document.getElementById('panel-products');
+      prodList.innerHTML = s.products.length
+        ? s.products.map(p => `
+            <div class="product-card" style="margin-bottom:.5rem">
+              <div class="info">
+                <h4>${p.name} ${p.is_flash_deal ? '<span class="badge badge-flash">⚡</span>' : ''}</h4>
+                <div class="stock">${p.stock_quantity} in stock</div>
+              </div>
+              <div class="price">${formatPrice(p.price)}</div>
+            </div>
+          `).join('')
+        : '<p style="color:var(--muted);font-size:13px">No products added yet</p>';
+
+      // Flash deal product selector
+      const sel = document.getElementById('flash-product-select');
+      sel.innerHTML = s.products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+
+      // Load orders
+      loadStreamOrders();
+
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  // ── ADD PRODUCT ──────────────────────────────────────────────
+  async function addProduct() {
+    const name  = document.getElementById('prod-name').value.trim();
+    const price = parseFloat(document.getElementById('prod-price').value);
+    const stock = parseInt(document.getElementById('prod-stock').value);
+
+    if (!name || !price) { toast('Name and price are required', 'error'); return; }
+
+    try {
+      await api('POST', '/products', {
+        name, price,
+        stock_quantity: stock || 0,
+        stream_id: selectedStreamId,
+      });
+      document.getElementById('prod-name').value  = '';
+      document.getElementById('prod-price').value = '';
+      document.getElementById('prod-stock').value = '';
+      toast('Product added!', 'success');
+      refreshPanel();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  // ── STREAM CONTROLS ──────────────────────────────────────────
+  function goLive() {
+    socket.emit('go-live', { streamId: selectedStreamId });
+    toast('Stream is now LIVE! 🔴', 'success');
+    setTimeout(refreshPanel, 500);
+    setTimeout(loadMyStreams, 500);
+  }
+
+  function endStream() {
+    socket.emit('end-stream', { streamId: selectedStreamId });
+    toast('Stream ended', 'info');
+    setTimeout(refreshPanel, 500);
+    setTimeout(loadMyStreams, 500);
+  }
+
+  // ── FLASH DEAL ───────────────────────────────────────────────
+  function startFlashDeal() {
+    const productId = parseInt(document.getElementById('flash-product-select').value);
+    const price     = parseFloat(document.getElementById('flash-price-input').value);
+    const duration  = parseInt(document.getElementById('flash-duration').value) || 60;
+
+    if (!productId || !price) { toast('Select a product and set flash price', 'error'); return; }
+
+    socket.emit('start-flash-deal', {
+      streamId:        selectedStreamId,
+      productId,
+      flashPrice:      price,
+      durationSeconds: duration,
+    });
+
+    toast(`Flash deal started for ${duration}s!`, 'success');
+  }
+
+  // ── LOAD STREAM ORDERS ────────────────────────────────────────
+  async function loadStreamOrders() {
+    try {
+      const data = await gql(`
+        query StreamOrders($streamId: Int!) {
+          streamOrders(streamId: $streamId) {
+            id total_price quantity createdAt
+            product { name }
+            buyer   { name }
+          }
+        }
+      `, { streamId: selectedStreamId });
+
+      const orders = data.streamOrders;
+      const panel  = document.getElementById('panel-orders');
+
+      if (!orders.length) {
+        panel.innerHTML = '<p style="color:var(--muted);font-size:13px">No orders yet</p>';
+        return;
+      }
+
+      const revenue = orders.reduce((s, o) => s + o.total_price, 0);
+
+      panel.innerHTML = `
+        <div style="font-weight:600;color:var(--green);margin-bottom:.5rem;font-size:14px">
+          Total revenue: ${formatPrice(revenue)}
+        </div>
+        ${orders.map(o => `
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px solid var(--border)">
+            <span><strong>${o.buyer.name}</strong> bought ${o.product.name} ×${o.quantity}</span>
+            <span style="color:var(--green);font-weight:600">${formatPrice(o.total_price)}</span>
+          </div>
+        `).join('')}
+      `;
+    } catch (err) {
+      // Orders require seller auth — silent fail for scheduled streams
+    }
+  }
+
+  // ── SOCKET (DASHBOARD) ────────────────────────────────────────
+  function connectDashboardSocket() {
+    socket = io('http://localhost:5000', { auth: { token: Auth.token() } });
+
+    socket.on('stream-status', () => { refreshPanel(); loadMyStreams(); });
+
+    // Refresh orders panel when a purchase happens
+    socket.on('inventory-update', () => {
+      refreshPanel();
+      loadStreamOrders();
+    });
+
+    socket.on('flash-deal-ended', () => refreshPanel());
+  }
+
+  function logout() { Auth.clear(); window.location = 'index.html'; }
+
+  // ── INIT ─────────────────────────────────────────────────────
+  loadMyStreams();
+</script>
+</body>
+</html>

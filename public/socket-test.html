@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Socket Test</title>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <h2>StreamCart Socket Tester</h2>
+
+  <div>
+    <input id="token" placeholder="Paste JWT token here" style="width:400px">
+    <button onclick="connect()">Connect</button>
+    <span id="status" style="color:gray">Disconnected</span>
+  </div>
+
+  <br>
+  <button onclick="joinStream()">Join Stream 1</button>
+  <button onclick="sendMsg()">Send Message</button>
+  <button onclick="goLive()">Go Live (seller)</button>
+  <button onclick="startFlash()">Start Flash Deal</button>
+
+  <br><br>
+  <div id="log" style="background:#f4f4f4;padding:12px;height:300px;overflow-y:auto;font-family:monospace;font-size:13px"></div>
+
+  <script>
+    let socket;
+
+    function log(msg) {
+      const div = document.getElementById('log');
+      div.innerHTML += `<div>${new Date().toLocaleTimeString()} — ${msg}</div>`;
+      div.scrollTop = div.scrollHeight;
+    }
+
+    function connect() {
+      const token = document.getElementById('token').value.trim();
+      socket = io('http://localhost:5000', {
+        auth: { token: token || null }
+      });
+
+      socket.on('connect', () => {
+        document.getElementById('status').textContent = 'Connected (' + socket.id + ')';
+        document.getElementById('status').style.color = 'green';
+        log('Connected to server');
+      });
+
+      socket.on('disconnect', () => {
+        document.getElementById('status').textContent = 'Disconnected';
+        document.getElementById('status').style.color = 'red';
+      });
+
+      // Listen for all events
+      socket.on('viewer-count',       d => log('VIEWER COUNT: ' + JSON.stringify(d)));
+      socket.on('chat-history',       d => log('CHAT HISTORY: ' + d.messages.length + ' messages'));
+      socket.on('new-message',        d => log('NEW MSG from ' + d.user.name + ': ' + d.message));
+      socket.on('flash-deal-started', d => log('FLASH DEAL! Price: ' + d.flashPrice + ' ends: ' + d.endsAt));
+      socket.on('flash-deal-ended',   d => log('FLASH DEAL ENDED for product ' + d.productId));
+      socket.on('stream-status',      d => log('STREAM STATUS: ' + d.status));
+      socket.on('inventory-update',   d => log('INVENTORY: ' + d.product_name + ' stock now: ' + d.stock_quantity));
+      socket.on('error',              d => log('ERROR: ' + d.message));
+    }
+
+    function joinStream() {
+      socket.emit('join-stream', { streamId: 1 });
+      log('Joining stream 1...');
+    }
+
+    function sendMsg() {
+      socket.emit('send-message', { streamId: 1, message: 'Hello from tester!' });
+    }
+
+    function goLive() {
+      socket.emit('go-live', { streamId: 1 });
+      log('Going live...');
+    }
+
+    function startFlash() {
+      socket.emit('start-flash-deal', {
+        streamId:        1,
+        productId:       1,
+        flashPrice:      299,
+        durationSeconds: 30,
+      });
+      log('Starting flash deal...');
+    }
+  </script>
+</body>
+</html>

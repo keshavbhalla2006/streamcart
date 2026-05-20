@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StreamCart — Live Stream</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="index.html" class="logo">🛒 StreamCart</a>
+  <div class="nav-links">
+    <div class="viewer-count">
+      <div class="viewer-dot"></div>
+      <span id="viewer-count">0 watching</span>
+    </div>
+    <span id="stream-status-badge"></span>
+  </div>
+</nav>
+
+<div class="stream-layout">
+
+  <!-- LEFT: stream info + products -->
+  <div class="stream-main">
+    <div id="stream-info" style="margin-bottom:1rem"></div>
+
+    <!-- Flash deal banner -->
+    <div class="flash-banner" id="flash-banner">
+      ⚡ Flash Deal!
+      <div id="flash-product-name" style="font-weight:600;margin:.25rem 0"></div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:1rem">
+        <span id="flash-price" style="font-size:1.5rem;font-weight:700;color:#92400E"></span>
+        <span class="countdown" id="flash-countdown">00:00</span>
+      </div>
+    </div>
+
+    <!-- Products -->
+    <h3 style="margin-bottom:.75rem;font-size:15px;color:var(--muted)">Products in this stream</h3>
+    <div id="products-list"></div>
+  </div>
+
+  <!-- RIGHT: chat sidebar -->
+  <div class="stream-sidebar">
+    <div style="padding:12px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px">
+      💬 Live Chat
+    </div>
+    <div class="chat-box" id="chat-box"></div>
+    <div class="chat-input-row">
+      <input id="chat-input" placeholder="Say something..." maxlength="300"
+        onkeydown="if(event.key==='Enter') sendChat()">
+      <button class="btn btn-primary btn-sm" onclick="sendChat()">Send</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="app.js"></script>
+<script>
+  const params   = new URLSearchParams(window.location.search);
+  const streamId = parseInt(params.get('id'));
+  if (!streamId) window.location = 'index.html';
+
+  let socket;
+  let products   = {};   // productId → product object (for live updates)
+  let flashTimer = null;
+
+  // ── LOAD STREAM DATA ─────────────────────────────────────────
+  async function loadStream() {
+    try {
+      const data = await gql(`
+        query GetStream($id: Int!) {
+          stream(id: $id) {
+            id title description status createdAt
+            seller { name }
+            products { id name description price stock_quantity is_flash_deal flash_price flash_ends_at }
+          }
+        }
+      `, { id: streamId });
+
+      const s = data.stream;
+      if (!s) { window.location = 'index.html'; return; }
+
+      // Stream info header
+      document.title = `${s.title} — StreamCart`;
+      document.getElementById('stream-info').innerHTML = `
+        <div class="card" style="padding:1rem;margin-bottom:.75rem">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+              <h2 style="font-size:1.2rem;font-weight:700">${s.title}</h2>
+              <p style="font-size:13px;color:var(--muted);margin-top:2px">by ${s.seller.name}</p>
+              ${s.description ? `<p style="font-size:13px;margin-top:4px">${s.description}</p>` : ''}
+            </div>
+            <span class="badge badge-${s.status}" id="status-badge">
+              ${s.status === 'live' ? '🔴 LIVE' : s.status}
+            </span>
+          </div>
+        </div>
+      `;
+
+      // Render products
+      s.products.forEach(p => { products[p.id] = p; });
+      renderProducts();
+
+      // Connect socket after stream loads
+      connectSocket();
+
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  // ── RENDER PRODUCTS ──────────────────────────────────────────
+  function renderProducts() {
+    const list = document.getElementById('products-list');
+
+    if (!Object.keys(products).length) {
+      list.innerHTML = '<p style="color:var(--muted);font-size:14px">No products in this stream yet.</p>';
+      return;
+    }
+
+    list.innerHTML = Object.values(products).map(p => {
+      const now      = new Date();
+      const isFlash  = p.is_flash_deal && p.flash_ends_at && new Date(p.flash_ends_at) > now;
+      const showPrice = isFlash ? p.flash_price : p.price;
+
+      return `
+        <div class="product-card" id="product-${p.id}">
+          <div class="info">
+            <h4>${p.name} ${isFlash ? '<span class="badge badge-flash">⚡ Flash</span>' : ''}</h4>
+            <div class="stock">${p.stock_quantity > 0 ? `${p.stock_quantity} left` : '<span style="color:var(--red)">Out of stock</span>'}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+            <div class="price">
+              ${formatPrice(showPrice)}
+              ${isFlash ? `<div class="original">${formatPrice(p.price)}</div>` : ''}
+            </div>
+            <button
+              class="btn btn-primary btn-sm"
+              onclick="buyProduct(${p.id})"
+              ${p.stock_quantity === 0 ? 'disabled' : ''}
+            >Buy</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ── BUY PRODUCT ──────────────────────────────────────────────
+  async function buyProduct(productId) {
+    if (!Auth.isLoggedIn()) {
+      toast('Please login to buy', 'error');
+      return;
+    }
+    if (Auth.user().role !== 'buyer') {
+      toast('Sellers cannot buy products', 'error');
+      return;
+    }
+
+    try {
+      const data = await gql(`
+        mutation PlaceOrder($product_id: Int!, $quantity: Int) {
+          placeOrder(product_id: $product_id, quantity: $quantity) {
+            message used_flash_deal
+            order { id total_price }
+          }
+        }
+      `, { product_id: productId, quantity: 1 });
+
+      const result = data.placeOrder;
+      toast(`Order placed! ${result.used_flash_deal ? '⚡ Flash deal price applied!' : ''} Total: ${formatPrice(result.order.total_price)}`, 'success');
+
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  // ── SOCKET.IO CONNECTION ─────────────────────────────────────
+  function connectSocket() {
+    socket = io('http://localhost:5000', {
+      auth: { token: Auth.token() || null }
+    });
+
+    socket.on('connect', () => {
+      socket.emit('join-stream', { streamId });
+    });
+
+    // Viewer count
+    socket.on('viewer-count', ({ count }) => {
+      document.getElementById('viewer-count').textContent = `${count} watching`;
+    });
+
+    // Chat history (loaded on join)
+    socket.on('chat-history', ({ messages }) => {
+      messages.forEach(m => appendChat(m.user.name, m.message));
+    });
+
+    // New chat message
+    socket.on('new-message', ({ user, message }) => {
+      appendChat(user.name, message);
+    });
+
+    // Inventory update (after a purchase)
+    socket.on('inventory-update', ({ productId, stock_quantity }) => {
+      if (products[productId]) {
+        products[productId].stock_quantity = stock_quantity;
+        renderProducts();
+      }
+    });
+
+    // Flash deal started
+    socket.on('flash-deal-started', ({ productId, flashPrice, endsAt, durationSeconds }) => {
+      if (products[productId]) {
+        products[productId].is_flash_deal  = true;
+        products[productId].flash_price    = flashPrice;
+        products[productId].flash_ends_at  = endsAt;
+
+        // Show banner
+        const banner = document.getElementById('flash-banner');
+        banner.classList.add('active');
+        document.getElementById('flash-product-name').textContent = products[productId].name;
+        document.getElementById('flash-price').textContent = formatPrice(flashPrice);
+
+        // Countdown timer
+        startCountdown(durationSeconds);
+        renderProducts();
+      }
+    });
+
+    // Flash deal ended
+    socket.on('flash-deal-ended', ({ productId }) => {
+      if (products[productId]) {
+        products[productId].is_flash_deal = false;
+        products[productId].flash_price   = null;
+        document.getElementById('flash-banner').classList.remove('active');
+        clearInterval(flashTimer);
+        renderProducts();
+        toast('Flash deal ended!', 'info');
+      }
+    });
+
+    // Stream status changed
+    socket.on('stream-status', ({ status }) => {
+      const badge = document.getElementById('status-badge');
+      if (badge) {
+        badge.className = `badge badge-${status}`;
+        badge.textContent = status === 'live' ? '🔴 LIVE' : status;
+      }
+      if (status === 'ended') toast('This stream has ended', 'info');
+    });
+
+    socket.on('disconnect', () => console.log('Socket disconnected'));
+  }
+
+  // ── COUNTDOWN TIMER ──────────────────────────────────────────
+  function startCountdown(seconds) {
+    clearInterval(flashTimer);
+    let remaining = seconds;
+
+    flashTimer = setInterval(() => {
+      remaining--;
+      const m = String(Math.floor(remaining / 60)).padStart(2, '0');
+      const s = String(remaining % 60).padStart(2, '0');
+      document.getElementById('flash-countdown').textContent = `${m}:${s}`;
+      if (remaining <= 0) clearInterval(flashTimer);
+    }, 1000);
+  }
+
+  // ── CHAT ─────────────────────────────────────────────────────
+  function appendChat(name, message) {
+    const box = document.getElementById('chat-box');
+    const div = document.createElement('div');
+    div.className = 'chat-msg';
+    div.innerHTML = `<span class="name">${name}</span>${message}`;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function sendChat() {
+    if (!Auth.isLoggedIn()) { toast('Login to chat', 'error'); return; }
+    const input = document.getElementById('chat-input');
+    const msg   = input.value.trim();
+    if (!msg) return;
+    socket.emit('send-message', { streamId, message: msg });
+    input.value = '';
+  }
+
+  // ── INIT ─────────────────────────────────────────────────────
+  loadStream();
+</script>
+</body>
+</html>
