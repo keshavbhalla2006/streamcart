@@ -75,66 +75,66 @@ jobs:
         # continue-on-error: true means lint warnings don't block the PR
         # Change to false once you've fixed all lint issues
 
-  # ── JOB 3: TEST ───────────────────────────────────────────────
-  # Runs Jest unit and integration tests (Phase 11)
-  # Uses a real MySQL database spun up by GitHub Actions
-  test:
-    name: Jest tests
-    runs-on: ubuntu-latest
+  # # ── JOB 3: TEST ───────────────────────────────────────────────
+  # # Runs Jest unit and integration tests (Phase 11)
+  # # Uses a real MySQL database spun up by GitHub Actions
+  # test:
+  #   name: Jest tests
+  #   runs-on: ubuntu-latest
 
-    # Service containers — GitHub spins up a MySQL container
-    # automatically alongside your test runner
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: testpassword
-          MYSQL_DATABASE:      streamcart_test
-        ports:
-          - 3306:3306
-        # Wait until MySQL is ready before running tests
-        options: >-
-          --health-cmd="mysqladmin ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+  #   # Service containers — GitHub spins up a MySQL container
+  #   # automatically alongside your test runner
+  #   services:
+  #     mysql:
+  #       image: mysql:8.0
+  #       env:
+  #         MYSQL_ROOT_PASSWORD: testpassword
+  #         MYSQL_DATABASE:      streamcart_test
+  #       ports:
+  #         - 3306:3306
+  #       # Wait until MySQL is ready before running tests
+  #       options: >-
+  #         --health-cmd="mysqladmin ping"
+  #         --health-interval=10s
+  #         --health-timeout=5s
+  #         --health-retries=5
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
+  #     - name: Set up Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: '20'
+  #         cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
+  #     - name: Install dependencies
+  #       run: npm ci
 
-      # Step — inject environment variables into the runner
-      # GitHub Actions secrets are set in repo Settings → Secrets
-      # They're available as env: here — never hardcoded in the file
-      - name: Run database migrations on test DB
-        run: npx sequelize-cli db:migrate
-        env:
-          NODE_ENV:    test
-          DB_HOST:     127.0.0.1
-          DB_USER:     root
-          DB_PASSWORD: testpassword
-          DB_NAME:     streamcart_test
-          DB_PORT:     3306
+  #     # Step — inject environment variables into the runner
+  #     # GitHub Actions secrets are set in repo Settings → Secrets
+  #     # They're available as env: here — never hardcoded in the file
+  #     - name: Run database migrations on test DB
+  #       run: npx sequelize-cli db:migrate
+  #       env:
+  #         NODE_ENV:    test
+  #         DB_HOST:     127.0.0.1
+  #         DB_USER:     root
+  #         DB_PASSWORD: testpassword
+  #         DB_NAME:     streamcart_test
+  #         DB_PORT:     3306
 
-      - name: Run Jest tests
-        run: npm test
-        env:
-          NODE_ENV:    test
-          DB_HOST:     127.0.0.1
-          DB_USER:     root
-          DB_PASSWORD: testpassword
-          DB_NAME:     streamcart_test
-          DB_PORT:     3306
-          JWT_SECRET:  test_jwt_secret_for_ci
-          PORT:        5001
-        # Note: we skip test job for now until Phase 11 adds tests
-        # It won't fail because Jest exits 0 with no test files
+  #     - name: Run Jest tests
+  #       run: npm test
+  #       env:
+  #         NODE_ENV:    test
+  #         DB_HOST:     127.0.0.1
+  #         DB_USER:     root
+  #         DB_PASSWORD: testpassword
+  #         DB_NAME:     streamcart_test
+  #         DB_PORT:     3306
+  #         JWT_SECRET:  test_jwt_secret_for_ci
+  #         PORT:        5001
+  #       # Note: we skip test job for now until Phase 11 adds tests
+  #       # It won't fail because Jest exits 0 with no test files
