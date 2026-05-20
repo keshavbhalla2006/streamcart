@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 module.exports = {
+  // Development environment
   development: {
     username: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
@@ -11,6 +12,7 @@ module.exports = {
     logging: false,
   },
 
+  // Production environment
   production: {
     username: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
@@ -21,6 +23,7 @@ module.exports = {
     logging: false,
   },
 
+  // Test environment (GitHub Actions CI)
   test: {
     username: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
@@ -31,3 +34,6 @@ module.exports = {
     logging: false,
   },
 };
+
+// a bridge between node.js app and mysql database
+// .env → database.js → Sequelize instance → Models → Queries
