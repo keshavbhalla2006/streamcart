@@ -1,0 +1,75 @@
+# ─────────────────────────────────────────────────────────────
+# StreamCart CD Pipeline
+# Runs when code is merged into main branch
+# Builds the project and deploys to Railway
+# ─────────────────────────────────────────────────────────────
+
+name: CD — Deploy to Production
+
+on:
+  push:
+    branches: [main]    # only triggers on main — not on dev or feature branches
+
+jobs:
+
+  # ── JOB 1: BUILD ─────────────────────────────────────────────
+  build:
+    name: Build TypeScript project
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeScript
+        run: npm run build
+        # Runs tsc — compiles src/ → dist/
+        # If TypeScript compilation fails, deployment is blocked
+
+      # Upload the built dist/ folder as an artifact
+      # The deploy job downloads it instead of rebuilding
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-build
+          path: dist/
+          retention-days: 1   # we only need it for this pipeline run
+
+  # ── JOB 2: DEPLOY ────────────────────────────────────────────
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    needs: build    # only runs if build job succeeds
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-build
+          path: dist/
+
+      # Install Railway CLI and trigger deployment
+      # RAILWAY_TOKEN is stored in GitHub Secrets — never in the file
+      - name: Deploy to Railway
+        uses: railwayapp/railway-action@v2
+        with:
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
+        env:
+          RAILWAY_SERVICE: streamcart-backend
+
+      - name: Notify deployment success
+        run: |
+          echo "Deployment complete!"
+          echo "StreamCart is live at your Railway URL"

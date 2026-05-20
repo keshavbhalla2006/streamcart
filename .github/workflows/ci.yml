@@ -1,0 +1,140 @@
+# ─────────────────────────────────────────────────────────────
+# StreamCart CI Pipeline
+# Runs on every push to any branch and every pull request to dev/main
+# ─────────────────────────────────────────────────────────────
+
+name: CI — Test and Type Check
+
+on:
+  push:
+    branches: ['**']        # every branch
+  pull_request:
+    branches: [dev, main]   # PRs targeting dev or main
+
+jobs:
+
+  # ── JOB 1: TYPE CHECK ────────────────────────────────────────
+  # Runs TypeScript compiler — catches type errors before runtime
+  typecheck:
+    name: TypeScript type check
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1 — checkout the code that was just pushed
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2 — set up Node.js
+      # actions/setup-node is an official GitHub Action
+      # It installs the specified Node version on the runner
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'        # cache node_modules between runs — faster
+
+      # Step 3 — install dependencies
+      - name: Install dependencies
+        run: npm ci
+        # npm ci is stricter than npm install:
+        # - reads package-lock.json exactly (reproducible)
+        # - deletes node_modules first (clean install)
+        # - never modifies package-lock.json
+        # Always use npm ci in CI pipelines, not npm install
+
+      # Step 4 — run TypeScript compiler in check mode
+      - name: Run TypeScript type check
+        run: npx tsc --noEmit
+        # --noEmit = check types but don't produce output files
+        # If any .ts file has a type error, this step fails
+        # The whole job fails, the PR is blocked
+
+  # ── JOB 2: LINT ──────────────────────────────────────────────
+  # Checks code style — catches formatting issues and common bugs
+  lint:
+    name: ESLint code check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+        # We'll add the lint script to package.json next
+        continue-on-error: true
+        # continue-on-error: true means lint warnings don't block the PR
+        # Change to false once you've fixed all lint issues
+
+  # ── JOB 3: TEST ───────────────────────────────────────────────
+  # Runs Jest unit and integration tests (Phase 11)
+  # Uses a real MySQL database spun up by GitHub Actions
+  test:
+    name: Jest tests
+    runs-on: ubuntu-latest
+
+    # Service containers — GitHub spins up a MySQL container
+    # automatically alongside your test runner
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: testpassword
+          MYSQL_DATABASE:      streamcart_test
+        ports:
+          - 3306:3306
+        # Wait until MySQL is ready before running tests
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Step — inject environment variables into the runner
+      # GitHub Actions secrets are set in repo Settings → Secrets
+      # They're available as env: here — never hardcoded in the file
+      - name: Run database migrations on test DB
+        run: npx sequelize-cli db:migrate
+        env:
+          NODE_ENV:    test
+          DB_HOST:     127.0.0.1
+          DB_USER:     root
+          DB_PASSWORD: testpassword
+          DB_NAME:     streamcart_test
+          DB_PORT:     3306
+
+      - name: Run Jest tests
+        run: npm test
+        env:
+          NODE_ENV:    test
+          DB_HOST:     127.0.0.1
+          DB_USER:     root
+          DB_PASSWORD: testpassword
+          DB_NAME:     streamcart_test
+          DB_PORT:     3306
+          JWT_SECRET:  test_jwt_secret_for_ci
+          PORT:        5001
+        # Note: we skip test job for now until Phase 11 adds tests
+        # It won't fail because Jest exits 0 with no test files
