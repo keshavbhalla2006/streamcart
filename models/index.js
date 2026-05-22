@@ -4,6 +4,7 @@ const Stream      = require('./Stream');
 const Product     = require('./Product');
 const Order       = require('./Order');
 const ChatMessage = require('./ChatMessage');
+const CartItem    = require('./CartItem');
 
 // --- ASSOCIATIONS ---
 
@@ -34,4 +35,20 @@ Order.belongsTo(Stream, { foreignKey: 'stream_id', as: 'stream' });
 User.hasMany(ChatMessage,   { foreignKey: 'user_id', as: 'chatMessages' });
 ChatMessage.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
-module.exports = { sequelize, User, Stream, Product, Order, ChatMessage };
+// A User can have many cart items
+User.hasMany(CartItem, { foreignKey: 'buyer_id', as: 'cartItems' });
+CartItem.belongsTo(User, { foreignKey: 'buyer_id', as: 'buyer' });
+
+// A Product can appear in many cart items
+Product.hasMany(CartItem, { foreignKey: 'product_id', as: 'cartItems' });
+CartItem.belongsTo(Product, { foreignKey: 'product_id', as: 'product' });
+
+module.exports = {
+  sequelize,
+  User,
+  Stream,
+  Product,
+  Order,
+  ChatMessage,
+  CartItem,
+};

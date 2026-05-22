@@ -111,7 +111,7 @@ router.get(
         attributes: ['id', 'name', 'email', 'role', 'createdAt'],
       });
       res.json({ user });
-    } catch (err) {
+    } catch {
       res.status(500).json({ error: 'Server error' });
     }
   }

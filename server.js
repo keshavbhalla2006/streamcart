@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const dotenv = require('dotenv');
 const path = require('path');
 const jwt = require('jsonwebtoken');
+const cartRoutes = require('./routes/cart');//cart system
 
 // Apollo
 const { ApolloServer } = require('@apollo/server');
@@ -47,6 +48,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/streams', require('./routes/streams'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/orders', require('./routes/orders'));
+app.use('/api/cart', cartRoutes);
 
 app.get('/api/ping', (req, res) => {
   res.json({

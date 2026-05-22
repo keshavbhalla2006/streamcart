@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, requireRole } = require('../middleware/authMiddleware');
-const { sendStreamStartedEmail } = require('../src/services/emailService');
+// const { sendStreamStartedEmail } = require('../src/services/emailService.ts');
 const { Stream, Product, User, Order } = require('../models/index');
 // ─── GET ALL STREAMS ─────────────────────────────────────────
 // Public — anyone can browse streams
