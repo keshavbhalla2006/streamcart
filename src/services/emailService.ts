@@ -1,5 +1,5 @@
-import transporter from '../config/mailer';
-import { IUser }   from '../types/index';
+const transporter = require('../config/mailer');
+// const { IUser } = require('../types/index');
 
 const FROM = process.env.MAIL_FROM || 'noreply@streamcart.dev';
 
@@ -37,7 +37,7 @@ const emailWrapper = (content: string): string => `
 
 // ── 1. WELCOME EMAIL ──────────────────────────────────────────
 // Sent after successful registration
-export async function sendWelcomeEmail(user: Pick<IUser, 'name' | 'email' | 'role'>): Promise<void> {
+async function sendWelcomeEmail(user:any) {
   const isSeller = user.role === 'seller';
 
   const html = emailWrapper(`
@@ -89,8 +89,8 @@ export async function sendWelcomeEmail(user: Pick<IUser, 'name' | 'email' | 'rol
   `);
 
   await transporter.sendMail({
-    from:    `StreamCart <${FROM}>`,
-    to:      `${user.name} <${user.email}>`,
+    from: `StreamCart <${FROM}>`,
+    to: `${user.name} <${user.email}>`,
     subject: `Welcome to StreamCart, ${user.name}!`,
     html,
   });
@@ -102,17 +102,17 @@ export async function sendWelcomeEmail(user: Pick<IUser, 'name' | 'email' | 'rol
 // Sent to buyer immediately after a successful checkout
 
 interface OrderEmailData {
-  buyerName:     string;
-  buyerEmail:    string;
-  orderId:       number;
-  productName:   string;
-  quantity:      number;
-  totalPrice:    number;
-  streamTitle:   string;
+  buyerName: string;
+  buyerEmail: string;
+  orderId: number;
+  productName: string;
+  quantity: number;
+  totalPrice: number;
+  streamTitle: string;
   usedFlashDeal: boolean;
 }
 
-export async function sendOrderConfirmationEmail(data: OrderEmailData): Promise<void> {
+async function sendOrderConfirmationEmail(data: OrderEmailData): Promise<void> {
   const {
     buyerName, buyerEmail, orderId,
     productName, quantity, totalPrice,
@@ -179,8 +179,8 @@ export async function sendOrderConfirmationEmail(data: OrderEmailData): Promise<
   `);
 
   await transporter.sendMail({
-    from:    `StreamCart <${FROM}>`,
-    to:      `${buyerName} <${buyerEmail}>`,
+    from: `StreamCart <${FROM}>`,
+    to: `${buyerName} <${buyerEmail}>`,
     subject: `Order confirmed — ${productName} 🛍️`,
     html,
   });
@@ -192,13 +192,13 @@ export async function sendOrderConfirmationEmail(data: OrderEmailData): Promise<
 // Sent to all buyers who previously ordered from this seller
 
 interface StreamStartedData {
-  sellerName:  string;
+  sellerName: string;
   streamTitle: string;
-  streamId:    number;
-  recipients:  Array<{ name: string; email: string }>;
+  streamId: number;
+  recipients: Array<{ name: string; email: string }>;
 }
 
-export async function sendStreamStartedEmail(data: StreamStartedData): Promise<void> {
+async function sendStreamStartedEmail(data: StreamStartedData): Promise<void> {
   const { sellerName, streamTitle, streamId, recipients } = data;
 
   if (!recipients.length) return;
@@ -240,8 +240,8 @@ export async function sendStreamStartedEmail(data: StreamStartedData): Promise<v
       `);
 
       return transporter.sendMail({
-        from:    `StreamCart <${FROM}>`,
-        to:      `${recipient.name} <${recipient.email}>`,
+        from: `StreamCart <${FROM}>`,
+        to: `${recipient.name} <${recipient.email}>`,
         subject: `🔴 ${sellerName} is live — ${streamTitle}`,
         html,
       });
@@ -254,9 +254,9 @@ export async function sendStreamStartedEmail(data: StreamStartedData): Promise<v
 // ── 4. PASSWORD RESET EMAIL ───────────────────────────────────
 // Bonus — useful for CE-2 viva
 
-export async function sendPasswordResetEmail(
+async function sendPasswordResetEmail(
   email: string,
-  name:  string,
+  name: string,
   token: string
 ): Promise<void> {
   const resetUrl = `http://localhost:5000/reset-password?token=${token}`;
@@ -283,11 +283,17 @@ export async function sendPasswordResetEmail(
   `);
 
   await transporter.sendMail({
-    from:    `StreamCart <${FROM}>`,
-    to:      `${name} <${email}>`,
+    from: `StreamCart <${FROM}>`,
+    to: `${name} <${email}>`,
     subject: 'Reset your StreamCart password',
     html,
   });
 
   console.log(`Password reset email sent to ${email}`);
+  module.exports = {
+    sendWelcomeEmail,
+    sendOrderConfirmationEmail,
+    sendStreamStartedEmail,
+    sendPasswordResetEmail,
+  };
 }

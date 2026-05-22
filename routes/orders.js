@@ -3,7 +3,7 @@ const router = express.Router();
 const { Order, Product, Stream, User } = require('../models/index');
 const { protect, requireRole } = require('../middleware/authMiddleware');
 const sequelize = require('../config/sequelize');
-const { sendOrderConfirmationEmail } = require('../src/services/emailService');
+// const { sendOrderConfirmationEmail } = require('../src/services/emailService');
 
 // ─── PLACE AN ORDER (CHECKOUT) ───────────────────────────────
 // Buyer only
